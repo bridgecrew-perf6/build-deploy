@@ -1,0 +1,54 @@
+version: 0.2
+
+env:
+  variables:
+    DOCKER_BUILDKIT: "1"
+  parameter-store:
+    DOCKER_USER: dockerhub-user
+    DOCKER_TOKEN: dockerhub-token
+    DB_CONNECTION: db_connection
+    DB_HOST: db_host
+    DB_PORT: db_port
+    DB_DATABASE: db_database
+    DB_USERNAME: db_username
+    DB_PASSWORD: db_password
+    
+
+phases:
+  install:
+    commands:
+      - yum install -y git
+      - yum install -y docker
+      - curl -L "https://github.com/docker/compose/releases/download/v2.1.1/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+      
+  pre_build:
+    commands:
+      - cp .env.example .env
+      - echo $DB_CONNECTION | sed -i -e "12c DB_CONNECTION=$DB_CONNECTION" .env
+      - echo $DB_HOST | sed -i -e "13c DB_HOST=$DB_HOST" .env
+      - echo $DB_PORT | sed -i -e "14c DB_PORT=$DB_PORT" .env
+      - echo $DB_DATABASE | sed -i -e "15c DB_DATABASE=$DB_DATABASE" .env
+      - echo $DB_USERNAME | sed -i -e "16c DB_USERNAME=$DB_USERNAME" .env
+      - echo $DB_PASSWORD | sed -i -e "17c DB_PASSWORD=$DB_PASSWORD" .env
+      - echo $DOCKER_TOKEN | docker login -u $DOCKER_USER --password-stdin
+      - composer self-update --1
+      - composer install
+      - npm install -g npm@8.6.0
+      - npm install --save cross-env
+      
+  build:
+    commands:
+      - npm run prod 
+      - export WWWUSER=${WWWUSER:-$UID}
+      - export WWWGROUP=${WWWGROUP:-$(id -g)}
+      - docker build --build-arg WWWGROUP=${WWWGROUP} -t server-prod -f ./infra/server-prod/Dockerfile .
+      - aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin ************.dkr.ecr.ap-northeast-1.amazonaws.com
+      - docker tag server-prod:latest ************.dkr.ecr.ap-northeast-1.amazonaws.com/server-prod:latest
+  
+  post_build:
+    commands:
+      - docker push ************.dkr.ecr.ap-northeast-1.amazonaws.com/server-prod:latest
+         
+artifacts:
+  files:
+    - '**/*'
